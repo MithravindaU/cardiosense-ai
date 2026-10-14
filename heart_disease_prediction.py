@@ -185,3 +185,181 @@ print(
     "\nDisclaimer: Educational model only. "
     "This output is not a diagnosis or a clinically validated risk estimate."
 )
+
+
+from sklearn.model_selection import StratifiedKFold, cross_validate
+
+# 6.5 Cross-validation on training data only
+cv = StratifiedKFold(
+    n_splits=5,
+    shuffle=True,
+    random_state=42
+)
+
+cv_results = cross_validate(
+    model,
+    X_train,
+    y_train,
+    cv=cv,
+    scoring={
+        "accuracy": "accuracy",
+        "balanced_accuracy": "balanced_accuracy",
+        "precision": "precision",
+        "recall": "recall",
+        "f1": "f1",
+        "roc_auc": "roc_auc"
+    },
+    n_jobs=-1
+)
+
+print("\n===== 5-FOLD CROSS-VALIDATION =====")
+
+for metric in [
+    "accuracy",
+    "balanced_accuracy",
+    "precision",
+    "recall",
+    "f1",
+    "roc_auc"
+]:
+    scores = cv_results[f"test_{metric}"]
+    print(
+        f"{metric.replace('_', ' ').title():20s}"
+        f"Mean: {scores.mean():.3f} | "
+        f"Std: {scores.std():.3f}"
+    )
+
+
+from pathlib import Path
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    roc_auc_score,
+    ConfusionMatrixDisplay,
+    RocCurveDisplay
+)
+
+# Create a folder for the generated images
+assets_dir = Path("assets")
+assets_dir.mkdir(parents=True, exist_ok=True)
+
+# ----------------------------------
+# 1. CONFUSION MATRIX
+# ----------------------------------
+fig, ax = plt.subplots(figsize=(6, 5))
+
+ConfusionMatrixDisplay.from_predictions(
+    y_test,
+    y_pred,
+    labels=[0, 1],
+    display_labels=["No disease", "Disease present"],
+    cmap="Blues",
+    values_format="d",
+    ax=ax
+)
+
+ax.set_title("CardioSense-AI | Confusion Matrix")
+fig.tight_layout()
+fig.savefig(assets_dir / "confusion_matrix.png", dpi=200, bbox_inches="tight")
+plt.show()
+plt.close(fig)
+
+
+# ----------------------------------
+# 2. ROC CURVE
+# ----------------------------------
+fig, ax = plt.subplots(figsize=(6, 5))
+
+RocCurveDisplay.from_predictions(
+    y_test,
+    y_score,
+    name="Random Forest",
+    ax=ax
+)
+
+ax.plot([0, 1], [0, 1], linestyle="--", label="Random baseline")
+ax.set_title("CardioSense-AI | ROC Curve")
+ax.legend()
+fig.tight_layout()
+fig.savefig(assets_dir / "roc_curve.png", dpi=200, bbox_inches="tight")
+plt.show()
+plt.close(fig)
+
+
+# ----------------------------------
+# 3. TOP 15 FEATURE IMPORTANCES
+# ----------------------------------
+fitted_preprocessor = model.named_steps["preprocessing"]
+classifier = model.named_steps["classifier"]
+
+feature_names = fitted_preprocessor.get_feature_names_out()
+
+importance = pd.Series(
+    classifier.feature_importances_,
+    index=feature_names
+).sort_values(ascending=False)
+
+top15 = importance.head(15).sort_values()
+
+fig, ax = plt.subplots(figsize=(9, 6))
+top15.plot(kind="barh", ax=ax)
+
+ax.set_title("CardioSense-AI | Top 15 Feature Importances")
+ax.set_xlabel("Random Forest importance")
+ax.set_ylabel("Encoded input feature")
+
+fig.tight_layout()
+fig.savefig(assets_dir / "feature_importance.png", dpi=200, bbox_inches="tight")
+plt.show()
+plt.close(fig)
+
+
+# ----------------------------------
+# 4. EVALUATION METRICS
+# ----------------------------------
+metrics = {
+    "Accuracy": accuracy_score(y_test, y_pred),
+    "Precision": precision_score(y_test, y_pred, zero_division=0),
+    "Recall": recall_score(y_test, y_pred, zero_division=0),
+    "F1-score": f1_score(y_test, y_pred, zero_division=0),
+    "ROC-AUC": roc_auc_score(y_test, y_score)
+}
+
+metrics_df = pd.DataFrame(
+    {"Metric": list(metrics.keys()), "Score": list(metrics.values())}
+)
+
+print(metrics_df.to_string(index=False))
+
+fig, ax = plt.subplots(figsize=(8, 5))
+bars = ax.bar(metrics_df["Metric"], metrics_df["Score"])
+
+ax.set_ylim(0, 1)
+ax.set_ylabel("Score")
+ax.set_title("CardioSense-AI | Test Set Metrics")
+ax.bar_label(bars, fmt="%.3f", padding=3)
+ax.tick_params(axis="x", rotation=20)
+
+fig.tight_layout()
+fig.savefig(assets_dir / "metrics_comparison.png", dpi=200, bbox_inches="tight")
+plt.show()
+plt.close(fig)
+
+
+# Save the exact metric values for your README/report
+metrics_df.to_csv(assets_dir / "evaluation_metrics.csv", index=False)
+
+print("\nSaved visualizations in:", assets_dir.resolve())
+print("Files:", [p.name for p in assets_dir.iterdir()])
+
+
+import shutil
+from google.colab import files
+
+shutil.make_archive("cardiosense_visualizations", "zip", "assets")
+files.download("cardiosense_visualizations.zip")
